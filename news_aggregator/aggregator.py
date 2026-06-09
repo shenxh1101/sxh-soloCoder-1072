@@ -59,13 +59,12 @@ class NewsAggregator:
                     items = future.result()
                     all_items.extend(items)
                     logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条")
-                except Exception as e:
-                    logger.error(f"{source.name} 抓取失败: {e}")
-                    items = []
 
-                if use_incremental:
-                    self.storage.set_last_fetch_time(source.name, fetch_start_time)
-                    logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}")
+                    if use_incremental:
+                        self.storage.set_last_fetch_time(source.name, fetch_start_time)
+                        logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}")
+                except Exception as e:
+                    logger.error(f"{source.name} 抓取失败，不推进增量时间: {e}")
 
         logger.info(f"所有源抓取完成，共获取 {len(all_items)} 条新闻")
         return all_items

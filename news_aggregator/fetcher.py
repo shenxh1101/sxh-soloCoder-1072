@@ -1,7 +1,7 @@
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 from typing import List, Optional
 import time
@@ -23,6 +23,19 @@ class BaseFetcher:
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         })
+
+    def _generate_stable_time(self, title: str, link: str) -> datetime:
+        import hashlib
+
+        content = f"{title}|{link}"
+        hash_bytes = hashlib.md5(content.encode('utf-8')).digest()
+        hash_int = int.from_bytes(hash_bytes[:4], 'big')
+
+        base_date = datetime(2020, 1, 1)
+        days_offset = hash_int % 3650
+        seconds_offset = (hash_int >> 16) % 86400
+
+        return base_date + timedelta(days=days_offset, seconds=seconds_offset)
 
     def _fetch_with_retry(self, url: str) -> Optional[requests.Response]:
         for attempt in range(self.config.retry_count):
@@ -71,7 +84,11 @@ class RSSFetcher(BaseFetcher):
 
                 publish_time = self._parse_time(entry)
 
-                if last_fetch_time and publish_time and publish_time <= last_fetch_time:
+                if publish_time is None:
+                    publish_time = self._generate_stable_time(title, link)
+                    logger.debug(f"条目无发布时间，使用稳定时间: {title[:30]} -> {publish_time}")
+
+                if last_fetch_time and publish_time <= last_fetch_time:
                     continue
 
                 item = NewsItem(
@@ -83,13 +100,15 @@ class RSSFetcher(BaseFetcher):
                 )
                 items.append(item)
             except Exception as e:
-                logger.error(f"解析RSS条目失败: {e}")
+                logger.error(f"解析RSS条目失败，跳过该条目: {e}")
                 continue
 
         logger.info(f"RSS源 {source.name} 抓取完成，共获取 {len(items)} 条新闻")
         return items
 
     def _parse_time(self, entry) -> Optional[datetime]:
+        from datetime import timezone
+
         time_fields = ['published', 'updated', 'created', 'issued']
         for field in time_fields:
             time_str = entry.get(field)
@@ -97,7 +116,7 @@ class RSSFetcher(BaseFetcher):
                 try:
                     dt = date_parser.parse(time_str)
                     if dt.tzinfo is not None:
-                        dt = dt.replace(tzinfo=None)
+                        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
                     return dt
                 except Exception:
                     continue
@@ -108,7 +127,7 @@ class RSSFetcher(BaseFetcher):
             except Exception:
                 pass
 
-        return datetime.now()
+        return None
 
 
 class WebFetcher(BaseFetcher):
@@ -157,18 +176,23 @@ class WebFetcher(BaseFetcher):
                     try:
                         publish_time = date_parser.parse(date_str, fuzzy=True)
                         if publish_time.tzinfo is not None:
-                            publish_time = publish_time.replace(tzinfo=None)
+                            from datetime import timezone
+                            publish_time = publish_time.astimezone(timezone.utc).replace(tzinfo=None)
                     except Exception:
-                        publish_time = datetime.now()
+                        publish_time = None
 
-                if last_fetch_time and publish_time and publish_time <= last_fetch_time:
+                if publish_time is None:
+                    publish_time = self._generate_stable_time(title, link)
+                    logger.debug(f"网页条目无发布时间，使用稳定时间: {title[:30]} -> {publish_time}")
+
+                if last_fetch_time and publish_time <= last_fetch_time:
                     continue
 
                 item = NewsItem(
                     title=title,
                     url=link,
                     summary=summary,
-                    publish_time=publish_time or datetime.now(),
+                    publish_time=publish_time,
                     source=source.name
                 )
                 items.append(item)

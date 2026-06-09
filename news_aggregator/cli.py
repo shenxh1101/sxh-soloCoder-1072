@@ -30,13 +30,27 @@ logger = logging.getLogger(__name__)
 def validate_positive_int(ctx, param, value):
     if value is None:
         return None
+
+    param_name = param.human_readable_name or param.name
+
     try:
         value = int(value)
-        if value <= 0:
-            raise click.BadParameter(f"必须是正整数，当前值: {value}")
-        return value
     except (ValueError, TypeError):
-        raise click.BadParameter(f"必须是有效的正整数，当前值: {value}")
+        raise click.BadParameter(
+            f"{Style.BRIGHT}{param_name}{Style.RESET_ALL} 必须是有效的数字，"
+            f"当前输入: {Style.BRIGHT}{Fore.RED}{value}{Fore.RESET}{Style.RESET_ALL}\n"
+            f"  示例: {Style.BRIGHT}--{param.name} 10{Style.RESET_ALL}"
+        )
+
+    if value <= 0:
+        error_type = "不能为0" if value == 0 else "不能为负数"
+        raise click.BadParameter(
+            f"{Style.BRIGHT}{param_name}{Style.RESET_ALL} {error_type}，"
+            f"当前值: {Style.BRIGHT}{Fore.RED}{value}{Fore.RESET}{Style.RESET_ALL}\n"
+            f"  请输入正整数，例如: {Style.BRIGHT}--{param.name} 10{Style.RESET_ALL}"
+        )
+
+    return value
 
 
 def get_aggregator(config_path: str) -> NewsAggregator:
