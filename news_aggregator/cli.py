@@ -27,6 +27,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def validate_positive_int(ctx, param, value):
+    if value is None:
+        return None
+    try:
+        value = int(value)
+        if value <= 0:
+            raise click.BadParameter(f"必须是正整数，当前值: {value}")
+        return value
+    except (ValueError, TypeError):
+        raise click.BadParameter(f"必须是有效的正整数，当前值: {value}")
+
+
 def get_aggregator(config_path: str) -> NewsAggregator:
     try:
         config = load_config(config_path)
@@ -142,7 +154,7 @@ def fetch(ctx, full, no_brief, no_notify):
 
 
 @cli.command()
-@click.option('--limit', '-n', default=20, help='显示的新闻数量')
+@click.option('--limit', '-n', default=20, type=int, callback=validate_positive_int, help='显示的新闻数量')
 @click.option('--source', '-s', help='按来源过滤')
 @click.option('--detail', '-d', is_flag=True, help='显示详细信息')
 @click.pass_context
@@ -170,9 +182,9 @@ def list(ctx, limit, source, detail):
 
 
 @cli.command()
-@click.option('--days', '-d', default=7, help='最近几天的新闻')
+@click.option('--days', '-d', default=7, type=int, callback=validate_positive_int, help='最近几天的新闻')
 @click.option('--source', '-s', help='按来源过滤')
-@click.option('--limit', '-n', help='限制新闻数量')
+@click.option('--limit', '-n', type=int, callback=validate_positive_int, help='限制新闻数量')
 @click.pass_context
 def brief(ctx, days, source, limit):
     """📄 生成历史新闻简报"""
@@ -194,7 +206,7 @@ def brief(ctx, days, source, limit):
 
 
 @cli.command()
-@click.option('--days', '-d', help='导出最近几天的数据')
+@click.option('--days', '-d', type=int, callback=validate_positive_int, help='导出最近几天的数据')
 @click.option('--source', '-s', help='按来源导出')
 @click.option('--output', '-o', default='./output', help='输出目录')
 @click.argument('type', type=click.Choice(['all', 'recent', 'source']))
@@ -258,7 +270,7 @@ def stats(ctx):
 
 
 @cli.command()
-@click.option('--interval', '-i', type=int, help='抓取间隔（分钟），覆盖配置文件')
+@click.option('--interval', '-i', type=int, callback=validate_positive_int, help='抓取间隔（分钟），覆盖配置文件')
 @click.pass_context
 def daemon(ctx, interval):
     """🔁 启动定时抓取服务"""

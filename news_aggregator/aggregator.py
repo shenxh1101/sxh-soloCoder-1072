@@ -33,6 +33,7 @@ class NewsAggregator:
         logger.info(f"启用的源: {[s.name for s in enabled_sources]}")
 
         all_items: List[NewsItem] = []
+        fetch_start_time = datetime.now()
 
         with ThreadPoolExecutor(max_workers=self.config.fetch.max_threads) as executor:
             future_to_source = {}
@@ -60,6 +61,11 @@ class NewsAggregator:
                     logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条")
                 except Exception as e:
                     logger.error(f"{source.name} 抓取失败: {e}")
+                    items = []
+
+                if use_incremental:
+                    self.storage.set_last_fetch_time(source.name, fetch_start_time)
+                    logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}")
 
         logger.info(f"所有源抓取完成，共获取 {len(all_items)} 条新闻")
         return all_items
@@ -88,7 +94,6 @@ class NewsAggregator:
 
         for item in saved_items:
             self.deduplicator.add_item(item)
-            self.storage.set_last_fetch_time(item.source, item.fetched_at or datetime.now())
 
         return result
 

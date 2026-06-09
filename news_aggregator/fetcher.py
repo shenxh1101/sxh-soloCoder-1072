@@ -95,7 +95,10 @@ class RSSFetcher(BaseFetcher):
             time_str = entry.get(field)
             if time_str:
                 try:
-                    return date_parser.parse(time_str)
+                    dt = date_parser.parse(time_str)
+                    if dt.tzinfo is not None:
+                        dt = dt.replace(tzinfo=None)
+                    return dt
                 except Exception:
                     continue
 
@@ -153,6 +156,8 @@ class WebFetcher(BaseFetcher):
                     date_str = date_el.get_text().strip()
                     try:
                         publish_time = date_parser.parse(date_str, fuzzy=True)
+                        if publish_time.tzinfo is not None:
+                            publish_time = publish_time.replace(tzinfo=None)
                     except Exception:
                         publish_time = datetime.now()
 
