@@ -1,0 +1,12 @@
+feedparser>=6.0.10
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+lxml>=4.9.3
+PyYAML>=6.0.1
+simhash>=2.1.2
+python-dateutil>=2.8.2
+jieba>=0.42.1
+click>=8.1.7
+schedule>=1.2.0
+colorama>=0.4.6
+tabulate>=0.9.0

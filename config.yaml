@@ -1,0 +1,89 @@
+sources:
+  - name: "央视新闻"
+    type: "rss"
+    url: "https://news.cctv.com/rss/world.xml"
+    enabled: true
+
+  - name: "澎湃新闻"
+    type: "rss"
+    url: "https://www.thepaper.cn/newsList_128663.xml"
+    enabled: true
+
+  - name: "36氪"
+    type: "rss"
+    url: "https://36kr.com/feed"
+    enabled: true
+
+  - name: "虎嗅网"
+    type: "rss"
+    url: "https://huxiu.com/rss.xml"
+    enabled: true
+
+  - name: "知乎日报"
+    type: "web"
+    url: "https://daily.zhihu.com"
+    selector:
+      title: ".link-button"
+      summary: ".main > p"
+      date: ".date"
+    enabled: false
+
+keywords:
+  include:
+    - "AI"
+    - "人工智能"
+    - "新能源"
+    - "电动汽车"
+    - "科技"
+    - "创新"
+  exclude:
+    - "广告"
+    - "推广"
+
+deduplication:
+  enabled: true
+  similarity_threshold: 0.85
+  hash_bits: 64
+
+fetch:
+  interval_minutes: 60
+  max_threads: 5
+  request_timeout: 30
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  retry_count: 3
+
+filter:
+  max_summary_length: 500
+  min_title_length: 5
+
+notification:
+  email:
+    enabled: false
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    username: "your_email@gmail.com"
+    password: "your_app_password"
+    from_addr: "your_email@gmail.com"
+    to_addrs:
+      - "recipient@example.com"
+    subject: "每日新闻简报"
+    use_tls: true
+
+  webhook:
+    enabled: false
+    url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+    method: "POST"
+    content_type: "application/json"
+    template: '{"msgtype": "markdown", "markdown": {"content": "{content}"}}'
+
+output:
+  markdown_dir: "./output"
+  include_original_link: true
+  include_summary: true
+  news_per_brief: 50
+  sort_by: "publish_time"
+  sort_order: "desc"
+
+storage:
+  db_path: "./data/news.db"
+  history_days: 30
