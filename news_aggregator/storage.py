@@ -316,7 +316,6 @@ class Storage:
                 health = SourceHealth.from_dict(dict(existing))
                 health.last_success_time = now
                 health.consecutive_failures = 0
-                health.last_failure_reason = None
                 health.total_fetched += fetched_count
                 health.total_saved += saved_count
                 if cursor_time:

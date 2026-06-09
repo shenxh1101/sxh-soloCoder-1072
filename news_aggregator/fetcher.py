@@ -83,9 +83,11 @@ class RSSFetcher(BaseFetcher):
                     summary = soup.get_text().strip()
 
                 publish_time = self._parse_time(entry)
+                is_stable_time = False
 
                 if publish_time is None:
                     publish_time = self._generate_stable_time(title, link)
+                    is_stable_time = True
                     logger.debug(f"条目无发布时间，使用稳定时间: {title[:30]} -> {publish_time}")
 
                 if last_fetch_time and publish_time <= last_fetch_time:
@@ -98,6 +100,7 @@ class RSSFetcher(BaseFetcher):
                     publish_time=publish_time,
                     source=source.name
                 )
+                item._is_stable_time = is_stable_time
                 items.append(item)
             except Exception as e:
                 logger.error(f"解析RSS条目失败，跳过该条目: {e}")
@@ -171,6 +174,7 @@ class WebFetcher(BaseFetcher):
 
                 date_el = container.select_one(date_selector)
                 publish_time = None
+                is_stable_time = False
                 if date_el:
                     date_str = date_el.get_text().strip()
                     try:
@@ -183,6 +187,7 @@ class WebFetcher(BaseFetcher):
 
                 if publish_time is None:
                     publish_time = self._generate_stable_time(title, link)
+                    is_stable_time = True
                     logger.debug(f"网页条目无发布时间，使用稳定时间: {title[:30]} -> {publish_time}")
 
                 if last_fetch_time and publish_time <= last_fetch_time:
@@ -195,6 +200,7 @@ class WebFetcher(BaseFetcher):
                     publish_time=publish_time,
                     source=source.name
                 )
+                item._is_stable_time = is_stable_time
                 items.append(item)
             except Exception as e:
                 logger.error(f"解析网页条目失败: {e}")

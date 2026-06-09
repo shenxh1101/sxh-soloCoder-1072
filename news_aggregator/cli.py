@@ -62,7 +62,10 @@ def validate_date(ctx, param, value):
 
     for fmt in date_formats:
         try:
-            return datetime.strptime(value, fmt)
+            dt = datetime.strptime(value, fmt)
+            if param.name == 'end_date':
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+            return dt
         except ValueError:
             continue
 
@@ -79,17 +82,17 @@ def get_aggregator(config_path: str) -> NewsAggregator:
         config = load_config(config_path)
         return NewsAggregator(config)
     except FileNotFoundError:
-        click.echo(Fore.RED + f"❌ 配置文件不存在: {config_path}")
+        click.echo(Fore.RED + f"X 配置文件不存在: {config_path}")
         click.echo(f"请先创建配置文件，可复制 {Style.BRIGHT}config.example.yaml{Style.RESET_ALL} 为 {Style.BRIGHT}config.yaml{Style.RESET_ALL}")
         sys.exit(1)
     except Exception as e:
-        click.echo(Fore.RED + f"❌ 加载配置失败: {e}")
+        click.echo(Fore.RED + f"X 加载配置失败: {e}")
         sys.exit(1)
 
 
 def display_news(items: list, limit: int = None):
     if not items:
-        click.echo(Fore.YELLOW + "⚠️  没有新闻可显示")
+        click.echo(Fore.YELLOW + "!  没有新闻可显示")
         return
 
     if limit:
@@ -123,7 +126,7 @@ def display_news(items: list, limit: int = None):
 
 def display_news_detail(item: NewsItem):
     click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}{'='*60}")
-    click.echo(f"\n📰 {Fore.GREEN}{Style.BRIGHT}{item.title}{Style.RESET_ALL}\n")
+    click.echo(f"\n{Fore.GREEN}{Style.BRIGHT}{item.title}{Style.RESET_ALL}\n")
     click.echo(f"{Fore.YELLOW}来源:{Fore.RESET} {item.source}")
     if item.publish_time:
         click.echo(f"{Fore.YELLOW}发布时间:{Fore.RESET} {item.publish_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -141,7 +144,7 @@ def display_news_detail(item: NewsItem):
 @click.option('--config', '-c', default='config.yaml', help='配置文件路径')
 @click.pass_context
 def cli(ctx, config):
-    """📰 多源新闻聚合与去重工具"""
+    """多源新闻聚合与去重工具"""
     ctx.ensure_object(dict)
     ctx.obj['config_path'] = config
 
@@ -152,11 +155,11 @@ def cli(ctx, config):
 @click.option('--no-notify', is_flag=True, help='不发送通知')
 @click.pass_context
 def fetch(ctx, full, no_brief, no_notify):
-    """🔄 抓取新闻并处理"""
+    """抓取新闻并处理"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
-    click.echo(Fore.CYAN + Style.BRIGHT + "\n🚀 开始抓取新闻...\n")
+    click.echo(Fore.CYAN + Style.BRIGHT + "\n>>> 开始抓取新闻...\n")
 
     result = aggregator.fetch_and_process(
         use_incremental=not full,
@@ -167,21 +170,21 @@ def fetch(ctx, full, no_brief, no_notify):
     stats = result['stats']
     duration = (result['fetch_end'] - result['fetch_start']).total_seconds()
 
-    click.echo(f"\n{Fore.GREEN}{Style.BRIGHT}✅ 抓取完成!{Style.RESET_ALL}")
-    click.echo(f"   ⏱️  耗时: {duration:.2f} 秒")
-    click.echo(f"   📥 抓取总数: {stats['total_input']} 条")
-    click.echo(f"   🔍 去重后: {stats['after_dedupe']} 条")
-    click.echo(f"   🏷️  过滤后: {stats['after_filter']} 条")
-    click.echo(f"   💾 已保存: {Fore.GREEN}{stats['saved']}{Fore.RESET} 条新新闻")
+    click.echo(f"\n{Fore.GREEN}{Style.BRIGHT}[OK] 抓取完成!{Style.RESET_ALL}")
+    click.echo(f"   [T]  耗时: {duration:.2f} 秒")
+    click.echo(f"   [+] 抓取总数: {stats['total_input']} 条")
+    click.echo(f"   [~] 去重后: {stats['after_dedupe']} 条")
+    click.echo(f"   [#]  过滤后: {stats['after_filter']} 条")
+    click.echo(f"   [S] 已保存: {Fore.GREEN}{stats['saved']}{Fore.RESET} 条新新闻")
 
     if result['brief_path']:
-        click.echo(f"   📄 Markdown简报: {Fore.CYAN}{result['brief_path']}{Fore.RESET}")
+        click.echo(f"   Markdown简报: {Fore.CYAN}{result['brief_path']}{Fore.RESET}")
 
     if result['notifications']:
         email_status = Fore.GREEN + "成功" if result['notifications'].get('email') else Fore.RED + "失败/未启用"
         webhook_status = Fore.GREEN + "成功" if result['notifications'].get('webhook') else Fore.RED + "失败/未启用"
-        click.echo(f"   📧 邮件通知: {email_status}{Fore.RESET}")
-        click.echo(f"   🔔 Webhook通知: {webhook_status}{Fore.RESET}")
+        click.echo(f"   [@] 邮件通知: {email_status}{Fore.RESET}")
+        click.echo(f"   [!] Webhook通知: {webhook_status}{Fore.RESET}")
 
     if result['items']:
         click.echo(f"\n{Fore.CYAN}最新新闻:{Fore.RESET}")
@@ -197,7 +200,7 @@ def fetch(ctx, full, no_brief, no_notify):
 @click.option('--detail', '-d', is_flag=True, help='显示详细信息')
 @click.pass_context
 def list(ctx, limit, source, keyword, start_date, end_date, detail):
-    """📋 查看最近新闻，支持按来源、关键词、时间范围筛选"""
+    """查看最近新闻，支持按来源、关键词、时间范围筛选"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
@@ -223,7 +226,7 @@ def list(ctx, limit, source, keyword, start_date, end_date, detail):
         click.echo(Fore.CYAN + f"筛选条件: {', '.join(filters_desc)}")
 
     if not items:
-        click.echo(Fore.YELLOW + "⚠️  暂无符合条件的新闻数据")
+        click.echo(Fore.YELLOW + "!  暂无符合条件的新闻数据")
         return
 
     click.echo(Fore.CYAN + f"共找到 {len(items)} 条新闻\n")
@@ -249,7 +252,7 @@ def list(ctx, limit, source, keyword, start_date, end_date, detail):
 @click.option('--end-date', 'end_date', callback=validate_date, help='结束日期 (YYYY-MM-DD)')
 @click.pass_context
 def brief(ctx, days, source, keyword, limit, start_date, end_date):
-    """📄 生成新闻简报，支持按来源、关键词、时间范围筛选"""
+    """生成新闻简报，支持按来源、关键词、时间范围筛选"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
@@ -268,7 +271,7 @@ def brief(ctx, days, source, keyword, limit, start_date, end_date):
     if end_date:
         filters_desc.append(f"结束: {end_date.strftime('%Y-%m-%d')}")
 
-    click.echo(Fore.CYAN + f"\n📄 正在生成新闻简报...")
+    click.echo(Fore.CYAN + f"\n正在生成新闻简报...")
     if filters_desc:
         click.echo(Fore.CYAN + f"筛选条件: {', '.join(filters_desc)}\n")
 
@@ -282,9 +285,9 @@ def brief(ctx, days, source, keyword, limit, start_date, end_date):
     )
 
     if filepath:
-        click.echo(Fore.GREEN + f"✅ 简报已生成: {filepath}")
+        click.echo(Fore.GREEN + f"[OK] 简报已生成: {filepath}")
     else:
-        click.echo(Fore.YELLOW + "⚠️  没有符合条件的新闻生成简报")
+        click.echo(Fore.YELLOW + "!  没有符合条件的新闻生成简报")
 
 
 @cli.command()
@@ -294,12 +297,12 @@ def brief(ctx, days, source, keyword, limit, start_date, end_date):
 @click.argument('type', type=click.Choice(['all', 'recent', 'source']))
 @click.pass_context
 def export(ctx, type, days, source, output):
-    """📊 导出新闻数据为CSV"""
+    """[=] 导出新闻数据为CSV"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
     exporter = CSVExporter(aggregator.storage)
 
-    click.echo(Fore.CYAN + f"\n📊 正在导出数据...\n")
+    click.echo(Fore.CYAN + f"\n[=] 正在导出数据...\n")
 
     filepath = ""
     if type == 'all':
@@ -311,7 +314,7 @@ def export(ctx, type, days, source, output):
         if not source:
             sources = aggregator.storage.get_sources()
             if not sources:
-                click.echo(Fore.YELLOW + "⚠️  没有可用的来源")
+                click.echo(Fore.YELLOW + "!  没有可用的来源")
                 return
             click.echo(Fore.CYAN + "可用来源:")
             for i, s in enumerate(sources, 1):
@@ -320,16 +323,16 @@ def export(ctx, type, days, source, output):
         filepath = exporter.export_by_source(source=source, output_dir=output)
 
     if filepath:
-        click.echo(Fore.GREEN + f"✅ 数据已导出: {filepath}")
+        click.echo(Fore.GREEN + f"[OK] 数据已导出: {filepath}")
     else:
-        click.echo(Fore.YELLOW + "⚠️  没有数据可导出")
+        click.echo(Fore.YELLOW + "!  没有数据可导出")
 
 
 @cli.command()
 @click.option('--health', is_flag=True, help='只显示源健康状态')
 @click.pass_context
 def stats(ctx, health):
-    """📈 查看统计信息和源健康状态"""
+    """[#] 查看统计信息和源健康状态"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
@@ -337,7 +340,7 @@ def stats(ctx, health):
     source_health_list = stats.get('source_health', [])
 
     if not health:
-        click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}📊 统计信息{Style.RESET_ALL}\n")
+        click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}[=] 统计信息{Style.RESET_ALL}\n")
         click.echo(f"   {Fore.GREEN}总新闻数:{Fore.RESET} {stats['total_news']}")
         click.echo(f"   {Fore.GREEN}配置的源:{Fore.RESET} {len(stats['configured_sources'])} 个")
         click.echo(f"   {Fore.GREEN}启用的源:{Fore.RESET} {len(stats['enabled_sources'])} 个")
@@ -347,7 +350,7 @@ def stats(ctx, health):
             for source, count in sorted(stats['sources'].items(), key=lambda x: x[1], reverse=True):
                 click.echo(f"     • {source}: {count} 条")
 
-    click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}🏥 源健康状态{Style.RESET_ALL}\n")
+    click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}[H] 源健康状态{Style.RESET_ALL}\n")
 
     if not source_health_list:
         click.echo(f"   {Fore.YELLOW}暂无健康状态记录，请先执行抓取{Fore.RESET}")
@@ -400,7 +403,7 @@ def daemon(ctx, interval):
         config = load_config(config_path)
         aggregator = NewsAggregator(config)
     except Exception as e:
-        click.echo(Fore.RED + f"❌ 初始化失败: {e}")
+        click.echo(Fore.RED + f"X 初始化失败: {e}")
         sys.exit(1)
 
     interval = interval or config.fetch.interval_minutes
@@ -425,7 +428,7 @@ def daemon(ctx, interval):
             schedule.run_pending()
             time.sleep(1)
     except KeyboardInterrupt:
-        click.echo(Fore.YELLOW + "\n\n⚠️  服务已停止")
+        click.echo(Fore.YELLOW + "\n\n!  服务已停止")
 
 
 @cli.command()
@@ -437,7 +440,7 @@ def init_config():
 
     from .config import create_default_config
     create_default_config('config.yaml')
-    click.echo(Fore.GREEN + "✅ 已创建默认配置文件 config.yaml")
+    click.echo(Fore.GREEN + "[OK] 已创建默认配置文件 config.yaml")
     click.echo("请根据需要修改配置，然后运行 fetch 命令开始抓取")
 
 
@@ -445,7 +448,7 @@ def init_config():
 @click.argument('news_id', type=int)
 @click.pass_context
 def show(ctx, news_id):
-    """🔍 查看指定ID的新闻详情"""
+    """[~] 查看指定ID的新闻详情"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
@@ -453,7 +456,7 @@ def show(ctx, news_id):
     item = next((n for n in all_news if n.id == news_id), None)
 
     if not item:
-        click.echo(Fore.RED + f"❌ 找不到ID为 {news_id} 的新闻")
+        click.echo(Fore.RED + f"X 找不到ID为 {news_id} 的新闻")
         return
 
     display_news_detail(item)

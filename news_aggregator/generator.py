@@ -30,13 +30,16 @@ class MarkdownGenerator:
 
         return sorted(items, key=get_sort_value, reverse=reverse)
 
-    def generate(self, items: List[NewsItem], title: str = None, filename: str = None) -> str:
+    def generate(self, items: List[NewsItem], title: str = None, filename: str = None, max_items: int = None) -> str:
         if not items:
             logger.warning("没有新闻可生成简报")
             return ""
 
         sorted_items = self._sort_items(items)
-        if self.config.news_per_brief > 0:
+        
+        if max_items is not None and max_items > 0:
+            sorted_items = sorted_items[:max_items]
+        elif self.config.news_per_brief > 0:
             sorted_items = sorted_items[:self.config.news_per_brief]
 
         if not title:

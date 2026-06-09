@@ -60,36 +60,31 @@ class NewsAggregator:
                     items = future.result()
                     all_items.extend(items)
 
-                    latest_publish_time = None
-                    if items:
-                        valid_times = [item.publish_time for item in items if item.publish_time]
-                        if valid_times:
-                            latest_publish_time = max(valid_times)
-                        else:
-                            latest_publish_time = fetch_start_time
-
-                    cursor_time = latest_publish_time or fetch_start_time
+                    real_publish_times = [item.publish_time for item in items if item.publish_time and not getattr(item, '_is_stable_time', False)]
+                    latest_publish_time = max(real_publish_times) if real_publish_times else None
 
                     source_results[source.name] = {
                         'success': True,
                         'items': items,
                         'fetched_count': len(items),
-                        'cursor_time': cursor_time,
+                        'cursor_time': latest_publish_time,
                         'error': None
                     }
 
-                    logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条，最新时间: {latest_publish_time}")
+                    logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条，最新真实发布时间: {latest_publish_time}")
 
                     if use_incremental:
                         self.storage.set_last_fetch_time(source.name, fetch_start_time)
                         if latest_publish_time:
                             self.storage.set_last_cursor_time(source.name, latest_publish_time)
-                        logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}, 游标: {cursor_time}")
+                            logger.info(f"{source.name} 增量游标已更新为: {latest_publish_time}")
+                        else:
+                            logger.info(f"{source.name} 无真实发布时间条目，不更新游标")
 
                     self.storage.update_source_health_success(
                         source.name,
                         fetched_count=len(items),
-                        cursor_time=cursor_time
+                        cursor_time=latest_publish_time
                     )
 
                 except Exception as e:
@@ -210,7 +205,7 @@ class NewsAggregator:
         title = " - ".join(title_parts)
         filename = f"brief_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
 
-        return self.generator.generate(items, title=title, filename=filename)
+        return self.generator.generate(items, title=title, filename=filename, max_items=limit)
 
     def get_recent_news(self, limit: int = 20, source: str = None,
                        keyword: str = None,
