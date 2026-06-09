@@ -1,10 +1,10 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import logging
 
 from .config import Config
-from .models import NewsItem
+from .models import NewsItem, SourceHealth
 from .fetcher import fetch_source
 from .deduplicator import Deduplicator
 from .filter import KeywordFilter
@@ -27,29 +27,30 @@ class NewsAggregator:
         existing_news = self.storage.get_all_news()
         self.deduplicator.load_existing(existing_news)
 
-    def fetch_all_sources(self, use_incremental: bool = True) -> List[NewsItem]:
+    def fetch_all_sources(self, use_incremental: bool = True) -> Dict:
         logger.info("开始抓取所有新闻源...")
         enabled_sources = [s for s in self.config.sources if s.enabled]
         logger.info(f"启用的源: {[s.name for s in enabled_sources]}")
 
         all_items: List[NewsItem] = []
         fetch_start_time = datetime.now()
+        source_results: Dict[str, Dict] = {}
 
         with ThreadPoolExecutor(max_workers=self.config.fetch.max_threads) as executor:
             future_to_source = {}
 
             for source in enabled_sources:
-                last_fetch_time = None
+                cursor_time = None
                 if use_incremental:
-                    last_fetch_time = self.storage.get_last_fetch_time(source.name)
-                    if last_fetch_time:
-                        logger.info(f"{source.name} 上次抓取时间: {last_fetch_time}")
+                    cursor_time = self.storage.get_last_cursor_time(source.name)
+                    if cursor_time:
+                        logger.info(f"{source.name} 上次游标时间: {cursor_time}")
 
                 future = executor.submit(
                     fetch_source,
                     source,
                     self.config.fetch,
-                    last_fetch_time
+                    cursor_time
                 )
                 future_to_source[future] = source
 
@@ -58,16 +59,57 @@ class NewsAggregator:
                 try:
                     items = future.result()
                     all_items.extend(items)
-                    logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条")
+
+                    latest_publish_time = None
+                    if items:
+                        valid_times = [item.publish_time for item in items if item.publish_time]
+                        if valid_times:
+                            latest_publish_time = max(valid_times)
+                        else:
+                            latest_publish_time = fetch_start_time
+
+                    cursor_time = latest_publish_time or fetch_start_time
+
+                    source_results[source.name] = {
+                        'success': True,
+                        'items': items,
+                        'fetched_count': len(items),
+                        'cursor_time': cursor_time,
+                        'error': None
+                    }
+
+                    logger.info(f"{source.name} 抓取完成，获取 {len(items)} 条，最新时间: {latest_publish_time}")
 
                     if use_incremental:
                         self.storage.set_last_fetch_time(source.name, fetch_start_time)
-                        logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}")
+                        if latest_publish_time:
+                            self.storage.set_last_cursor_time(source.name, latest_publish_time)
+                        logger.info(f"{source.name} 增量时间已更新为: {fetch_start_time}, 游标: {cursor_time}")
+
+                    self.storage.update_source_health_success(
+                        source.name,
+                        fetched_count=len(items),
+                        cursor_time=cursor_time
+                    )
+
                 except Exception as e:
-                    logger.error(f"{source.name} 抓取失败，不推进增量时间: {e}")
+                    error_msg = str(e)
+                    source_results[source.name] = {
+                        'success': False,
+                        'items': [],
+                        'fetched_count': 0,
+                        'cursor_time': None,
+                        'error': error_msg
+                    }
+                    logger.error(f"{source.name} 抓取失败，不推进增量时间: {error_msg}")
+                    self.storage.update_source_health_failure(source.name, error_msg)
 
         logger.info(f"所有源抓取完成，共获取 {len(all_items)} 条新闻")
-        return all_items
+        return {
+            'items': all_items,
+            'fetch_start_time': fetch_start_time,
+            'source_results': source_results
+        }
 
     def process_items(self, items: List[NewsItem]) -> Dict:
         result = {
@@ -105,11 +147,25 @@ class NewsAggregator:
             'items': [],
             'brief_path': '',
             'notifications': {},
-            'stats': {}
+            'stats': {},
+            'source_results': {}
         }
 
-        items = self.fetch_all_sources(use_incremental=use_incremental)
+        fetch_result = self.fetch_all_sources(use_incremental=use_incremental)
+        items = fetch_result['items']
+        result['source_results'] = fetch_result['source_results']
+
         process_result = self.process_items(items)
+
+        saved_by_source: Dict[str, int] = {}
+        for item in process_result['items']:
+            saved_by_source[item.source] = saved_by_source.get(item.source, 0) + 1
+
+        for source_name, saved_count in saved_by_source.items():
+            self.storage.update_source_health_success(
+                source_name,
+                saved_count=saved_count
+            )
 
         result['fetch_end'] = datetime.now()
         result['items'] = process_result['items']
@@ -123,29 +179,53 @@ class NewsAggregator:
 
         return result
 
-    def generate_brief_from_storage(self, days: int = 7,
+    def generate_brief_from_storage(self, days: int = None,
                                     source: str = None,
-                                    limit: int = None) -> str:
-        from datetime import timedelta
+                                    limit: int = None,
+                                    keyword: str = None,
+                                    start_date: datetime = None,
+                                    end_date: datetime = None) -> str:
+        if start_date is None and days is not None:
+            end_date = end_date or datetime.now()
+            start_date = end_date - timedelta(days=days)
 
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        items = self.storage.get_news_with_filters(
+            limit=limit,
+            source=source,
+            keyword=keyword,
+            start_date=start_date,
+            end_date=end_date
+        )
 
-        items = self.storage.get_news_by_date_range(start_date, end_date)
-
+        title_parts = ["新闻简报"]
         if source:
-            items = [item for item in items if item.source == source]
+            title_parts.append(f"来源: {source}")
+        if keyword:
+            title_parts.append(f"关键词: {keyword}")
+        if days:
+            title_parts.append(f"最近{days}天")
+        elif start_date and end_date:
+            title_parts.append(f"{start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
 
-        if limit:
-            items = items[:limit]
-
-        title = f"历史新闻简报 - 最近{days}天"
-        filename = f"history_brief_{end_date.strftime('%Y%m%d_%H%M%S')}.md"
+        title = " - ".join(title_parts)
+        filename = f"brief_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
 
         return self.generator.generate(items, title=title, filename=filename)
 
-    def get_recent_news(self, limit: int = 20, source: str = None) -> List[NewsItem]:
-        return self.storage.get_all_news(limit=limit, source=source)
+    def get_recent_news(self, limit: int = 20, source: str = None,
+                       keyword: str = None,
+                       start_date: datetime = None,
+                       end_date: datetime = None) -> List[NewsItem]:
+        return self.storage.get_news_with_filters(
+            limit=limit,
+            source=source,
+            keyword=keyword,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+    def get_source_health(self) -> List[SourceHealth]:
+        return self.storage.get_all_source_health()
 
     def get_stats(self) -> Dict:
         sources = self.storage.get_sources()
@@ -153,7 +233,8 @@ class NewsAggregator:
             'total_news': self.storage.get_news_count(),
             'sources': {},
             'enabled_sources': [s.name for s in self.config.sources if s.enabled],
-            'configured_sources': [s.name for s in self.config.sources]
+            'configured_sources': [s.name for s in self.config.sources],
+            'source_health': self.get_source_health()
         }
 
         for source in sources:

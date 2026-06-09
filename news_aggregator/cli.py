@@ -53,6 +53,27 @@ def validate_positive_int(ctx, param, value):
     return value
 
 
+def validate_date(ctx, param, value):
+    if value is None:
+        return None
+
+    param_name = param.human_readable_name or param.name
+    date_formats = ['%Y-%m-%d', '%Y/%m/%d', '%Y%m%d']
+
+    for fmt in date_formats:
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+
+    raise click.BadParameter(
+        f"{Style.BRIGHT}{param_name}{Style.RESET_ALL} 日期格式无效，"
+        f"当前输入: {Style.BRIGHT}{Fore.RED}{value}{Fore.RESET}{Style.RESET_ALL}\n"
+        f"  支持的格式: YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD\n"
+        f"  示例: {Style.BRIGHT}--{param.name} 2026-06-01{Style.RESET_ALL}"
+    )
+
+
 def get_aggregator(config_path: str) -> NewsAggregator:
     try:
         config = load_config(config_path)
@@ -170,18 +191,42 @@ def fetch(ctx, full, no_brief, no_notify):
 @cli.command()
 @click.option('--limit', '-n', default=20, type=int, callback=validate_positive_int, help='显示的新闻数量')
 @click.option('--source', '-s', help='按来源过滤')
+@click.option('--keyword', '-k', help='按关键词过滤')
+@click.option('--start-date', 'start_date', callback=validate_date, help='开始日期 (YYYY-MM-DD)')
+@click.option('--end-date', 'end_date', callback=validate_date, help='结束日期 (YYYY-MM-DD)')
 @click.option('--detail', '-d', is_flag=True, help='显示详细信息')
 @click.pass_context
-def list(ctx, limit, source, detail):
-    """📋 查看最近新闻"""
+def list(ctx, limit, source, keyword, start_date, end_date, detail):
+    """📋 查看最近新闻，支持按来源、关键词、时间范围筛选"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
-    items = aggregator.get_recent_news(limit=limit, source=source)
+    items = aggregator.get_recent_news(
+        limit=limit,
+        source=source,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+    filters_desc = []
+    if source:
+        filters_desc.append(f"来源: {source}")
+    if keyword:
+        filters_desc.append(f"关键词: {keyword}")
+    if start_date:
+        filters_desc.append(f"开始: {start_date.strftime('%Y-%m-%d')}")
+    if end_date:
+        filters_desc.append(f"结束: {end_date.strftime('%Y-%m-%d')}")
+
+    if filters_desc:
+        click.echo(Fore.CYAN + f"筛选条件: {', '.join(filters_desc)}")
 
     if not items:
-        click.echo(Fore.YELLOW + "⚠️  暂无新闻数据，请先执行抓取")
+        click.echo(Fore.YELLOW + "⚠️  暂无符合条件的新闻数据")
         return
+
+    click.echo(Fore.CYAN + f"共找到 {len(items)} 条新闻\n")
 
     if detail and items:
         for i, item in enumerate(items, 1):
@@ -196,27 +241,50 @@ def list(ctx, limit, source, detail):
 
 
 @cli.command()
-@click.option('--days', '-d', default=7, type=int, callback=validate_positive_int, help='最近几天的新闻')
+@click.option('--days', '-d', type=int, callback=validate_positive_int, help='最近几天的新闻')
 @click.option('--source', '-s', help='按来源过滤')
+@click.option('--keyword', '-k', help='按关键词过滤')
 @click.option('--limit', '-n', type=int, callback=validate_positive_int, help='限制新闻数量')
+@click.option('--start-date', 'start_date', callback=validate_date, help='开始日期 (YYYY-MM-DD)')
+@click.option('--end-date', 'end_date', callback=validate_date, help='结束日期 (YYYY-MM-DD)')
 @click.pass_context
-def brief(ctx, days, source, limit):
-    """📄 生成历史新闻简报"""
+def brief(ctx, days, source, keyword, limit, start_date, end_date):
+    """📄 生成新闻简报，支持按来源、关键词、时间范围筛选"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
-    click.echo(Fore.CYAN + f"\n📄 正在生成最近 {days} 天的新闻简报...\n")
+    if days is None and start_date is None:
+        days = 7
+
+    filters_desc = []
+    if source:
+        filters_desc.append(f"来源: {source}")
+    if keyword:
+        filters_desc.append(f"关键词: {keyword}")
+    if days:
+        filters_desc.append(f"最近 {days} 天")
+    if start_date:
+        filters_desc.append(f"开始: {start_date.strftime('%Y-%m-%d')}")
+    if end_date:
+        filters_desc.append(f"结束: {end_date.strftime('%Y-%m-%d')}")
+
+    click.echo(Fore.CYAN + f"\n📄 正在生成新闻简报...")
+    if filters_desc:
+        click.echo(Fore.CYAN + f"筛选条件: {', '.join(filters_desc)}\n")
 
     filepath = aggregator.generate_brief_from_storage(
         days=days,
         source=source,
-        limit=limit
+        keyword=keyword,
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date
     )
 
     if filepath:
         click.echo(Fore.GREEN + f"✅ 简报已生成: {filepath}")
     else:
-        click.echo(Fore.YELLOW + "⚠️  没有足够的新闻生成简报")
+        click.echo(Fore.YELLOW + "⚠️  没有符合条件的新闻生成简报")
 
 
 @cli.command()
@@ -258,29 +326,65 @@ def export(ctx, type, days, source, output):
 
 
 @cli.command()
+@click.option('--health', is_flag=True, help='只显示源健康状态')
 @click.pass_context
-def stats(ctx):
-    """📈 查看统计信息"""
+def stats(ctx, health):
+    """📈 查看统计信息和源健康状态"""
     config_path = ctx.obj['config_path']
     aggregator = get_aggregator(config_path)
 
     stats = aggregator.get_stats()
+    source_health_list = stats.get('source_health', [])
 
-    click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}📊 统计信息{Style.RESET_ALL}\n")
-    click.echo(f"   {Fore.GREEN}总新闻数:{Fore.RESET} {stats['total_news']}")
-    click.echo(f"   {Fore.GREEN}配置的源:{Fore.RESET} {len(stats['configured_sources'])} 个")
-    click.echo(f"   {Fore.GREEN}启用的源:{Fore.RESET} {len(stats['enabled_sources'])} 个")
+    if not health:
+        click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}📊 统计信息{Style.RESET_ALL}\n")
+        click.echo(f"   {Fore.GREEN}总新闻数:{Fore.RESET} {stats['total_news']}")
+        click.echo(f"   {Fore.GREEN}配置的源:{Fore.RESET} {len(stats['configured_sources'])} 个")
+        click.echo(f"   {Fore.GREEN}启用的源:{Fore.RESET} {len(stats['enabled_sources'])} 个")
 
-    if stats['enabled_sources']:
-        click.echo(f"\n   {Fore.YELLOW}启用的源列表:{Fore.RESET}")
-        for s in stats['enabled_sources']:
-            count = stats['sources'].get(s, 0)
-            click.echo(f"     • {s} ({count} 条新闻)")
+        if stats['sources']:
+            click.echo(f"\n   {Fore.YELLOW}各来源新闻数:{Fore.RESET}")
+            for source, count in sorted(stats['sources'].items(), key=lambda x: x[1], reverse=True):
+                click.echo(f"     • {source}: {count} 条")
 
-    if stats['sources']:
-        click.echo(f"\n   {Fore.YELLOW}各来源新闻数:{Fore.RESET}")
-        for source, count in sorted(stats['sources'].items(), key=lambda x: x[1], reverse=True):
-            click.echo(f"     • {source}: {count} 条")
+    click.echo(f"\n{Fore.CYAN}{Style.BRIGHT}🏥 源健康状态{Style.RESET_ALL}\n")
+
+    if not source_health_list:
+        click.echo(f"   {Fore.YELLOW}暂无健康状态记录，请先执行抓取{Fore.RESET}")
+    else:
+        health_data = []
+        for health in source_health_list:
+            status = Fore.GREEN + "正常" + Fore.RESET
+            if health.consecutive_failures > 0:
+                status = Fore.RED + f"连续失败 {health.consecutive_failures} 次" + Fore.RESET
+
+            last_success = health.last_success_time.strftime('%Y-%m-%d %H:%M') if health.last_success_time else "无"
+            last_failure = health.last_failure_time.strftime('%Y-%m-%d %H:%M') if health.last_failure_time else "无"
+            cursor_time = health.last_cursor_time.strftime('%Y-%m-%d %H:%M') if health.last_cursor_time else "无"
+
+            health_data.append([
+                health.source_name,
+                status,
+                last_success,
+                last_failure,
+                health.last_failure_reason or "-",
+                cursor_time,
+                health.total_fetched,
+                health.total_saved
+            ])
+
+        headers = [
+            Fore.CYAN + "源名称" + Fore.RESET,
+            Fore.CYAN + "状态" + Fore.RESET,
+            Fore.CYAN + "上次成功" + Fore.RESET,
+            Fore.CYAN + "上次失败" + Fore.RESET,
+            Fore.CYAN + "失败原因" + Fore.RESET,
+            Fore.CYAN + "当前游标" + Fore.RESET,
+            Fore.CYAN + "累计抓取" + Fore.RESET,
+            Fore.CYAN + "累计保存" + Fore.RESET,
+        ]
+
+        click.echo(tabulate(health_data, headers=headers, tablefmt='simple'))
 
 
 @cli.command()
